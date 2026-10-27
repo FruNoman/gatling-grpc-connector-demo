@@ -1,0 +1,8 @@
+<configuration>
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder><pattern>%d{HH:mm:ss.SSS} %-5level %logger{30} - %msg%n</pattern></encoder>
+  </appender>
+  <!-- the run's own setup: the channel, the plan, the summary -->
+  <logger name="com.frunoyman.perf" level="INFO"/>
+  <root level="WARN"><appender-ref ref="CONSOLE"/></root>
+</configuration>

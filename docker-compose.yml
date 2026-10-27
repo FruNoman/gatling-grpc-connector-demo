@@ -1,0 +1,8 @@
+services:
+  grpcbin:
+    image: moul/grpcbin:latest
+    # the image is amd64-only; on Apple silicon Docker Desktop emulates it — that costs latency, see docs/run-notes.md
+    platform: linux/amd64
+    ports:
+      - "9000:9000"   # insecure gRPC — the one target this whole demo talks to
+      - "9001:9001"   # secure gRPC + HTTP/2, unused here
