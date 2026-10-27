@@ -103,16 +103,17 @@ Full numbers, including the applied-vs-planned check, in [docs/run-notes.md](doc
 
 | Request | total | OK | KO | p95 | limit |
 |---|---|---|---|---|---|
-| `GRPCBin/DummyUnary` | 339 | 339 | 0 | 10 ms | 500 ms |
-| `GRPCBin/DummyServerStream` | 292 | 292 | 0 | 10 051 ms | 11 000 ms |
-| `GRPCBin/DummyBidirectionalStreamStream` | 290 | 290 | 0 | 32 ms | 1 000 ms |
+| `GRPCBin/DummyUnary` | 339 | 339 | 0 | 5 ms | 500 ms |
+| `GRPCBin/DummyServerStream` | 293 | 293 | 0 | 10 034 ms | 11 000 ms |
+| `GRPCBin/DummyBidirectionalStreamStream` | 291 | 291 | 0 | 28 ms | 1 000 ms |
 
-921 requests, 0 KO, 12.28 req/s, 75 s wall clock, 50 concurrent users held for the whole plateau, all assertions green. The
-connector's own counting (`966 sent / 921 answered / 45 cut by the run's end`, 6 159 messages) matches Gatling's report request
-for request.
+923 requests, 0 KO, 12.31 req/s, 75 s wall clock, 50 concurrent users held for the whole plateau, all assertions green. The
+connector's own counting (`968 sent / 923 answered / 45 cut by the run's end`, 6 179 messages) matches Gatling's report request
+for request. The run before the descriptor DSL landed had 922 requests at 12.29 req/s with p95 6 / 10 057 / 29 ms — the refactor
+moved the call site, not the measurement.
 
 Those three p95 numbers differ by **two orders of magnitude**, which is the argument against a single global percentile: the
-global p95 of this run is 10 044 ms, and it is the download, nothing else.
+global p95 of this run is 10 027 ms, and it is the download, nothing else.
 
 ## Architecture
 
