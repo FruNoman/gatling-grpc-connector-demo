@@ -13,9 +13,10 @@ import java.util.function.UnaryOperator;
  *
  * <pre>{@code
  * exec(
- *         bidiStream("GRPCBin/DummyBidirectionalStreamStream", GRPCBinGrpc.getDummyBidirectionalStreamStreamMethod())
- *             .messages(uploadChunks, (session, index) -> DummyMessage.newBuilder().setFInt32(index).setFBytes(chunk()).build())
- *             .check((echoes, last, session) -> echoes == uploadChunks ? null : echoes + " echoes of " + uploadChunks)
+ *         grpc("GRPCBin/DummyBidirectionalStreamStream")
+ *             .bidiStream(GRPCBinGrpc.getDummyBidirectionalStreamStreamMethod())
+ *             .send(uploadChunks, (session, index) -> DummyMessage.newBuilder().setFInt32(index).setFBytes(chunk()).build())
+ *             .check(messageCount().is(uploadChunks))
  * )
  * }</pre>
  *
@@ -59,15 +60,16 @@ public final class GrpcBidiStreamActionBuilder<Q, R> implements ActionBuilder {
      * How many messages the stream sends and how each one is built. A fixed count comes from the run's config; a count that differs
      * per session belongs in the session, read inside {@code message}.
      */
-    public GrpcBidiStreamActionBuilder<Q, R> messages(int messageCount, Message<Q> messageAtIndex) {
+    public GrpcBidiStreamActionBuilder<Q, R> send(int messageCount, Message<Q> messageAtIndex) {
         this.count = messageCount;
         this.message = messageAtIndex;
         return this;
     }
 
-    /** The stream's check over the answers that came back. */
-    public GrpcBidiStreamActionBuilder<Q, R> check(GrpcStreamCheck<R> reasonOrNull) {
-        this.check = reasonOrNull;
+    /** The stream's check over the answers that came back — several are run in order and the first reason is the KO's. */
+    @SafeVarargs
+    public final GrpcBidiStreamActionBuilder<Q, R> check(GrpcStreamCheck<R>... checks) {
+        this.check = GrpcStreamCheck.all(checks);
         return this;
     }
 
@@ -80,7 +82,7 @@ public final class GrpcBidiStreamActionBuilder<Q, R> implements ActionBuilder {
     @Override
     public io.gatling.core.action.builder.ActionBuilder asScala() {
         if (message == null || count < 0) {
-            throw new IllegalStateException(name + ": no messages(count, ...)");
+            throw new IllegalStateException(name + ": no send(count, ...)");
         }
         GrpcShape.require(name, method, MethodDescriptor.MethodType.BIDI_STREAMING, MethodDescriptor.MethodType.CLIENT_STREAMING);
         return (context, next) -> new GrpcBidiStreamAction<>(name, channel, method, callOptions, count, message, check,

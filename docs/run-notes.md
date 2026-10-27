@@ -142,6 +142,34 @@ java.lang.IllegalStateException: GRPCBin/WrongShape: grpcbin.GRPCBin/DummyServer
 Before the first user is injected, with the RPC's full method name in the message, and the build fails. It is still a runtime
 check where there used to be a compile error — that is the honest cost of the two-argument call site.
 
+## The Gatling-shaped DSL — the same calls, read as Gatling Enterprise writes them
+
+The call site moved from `grpc(name, descriptor).request(…).check((response, session) -> … ? null : "…")` to Gatling's own
+order — `grpc(name).unary(descriptor).send(…).check(response(DummyMessage::getFString).isEL("#{payload}"))`, and
+`.check(messageCount().is(10))` for a stream. The actions underneath are untouched, so the smoke profile is the control:
+
+```bash
+./gradlew clean gatlingRun -Dsimulation=GrpcbinSimulation -Dprofile=smoke -Dusers=3
+```
+
+30 requests, 0 KO, every assertion green — p95 unary 66 ms, download 10 044 ms, upload 24 ms; own counting 33 sent / 30 answered
+/ 3 cut, 192 messages.
+
+A check that never fails proves nothing, so the same run with both expectations deliberately wrong — the echo compared with
+`#{payloadId}`, the download expected to deliver 11 messages:
+
+```
+---- Errors ------------------------------------------------------------------------------------------------------------
+> 10 messages, expected 11                                                                                    9 (42.86%)
+> response is 'payload-11', expected '11'                                                                     1  (4.76%)
+> response is 'payload-9', expected '9'                                                                       1  (4.76%)
+…
+BUILD FAILED in 52s
+```
+
+The reasons are written by the check, not the call site, and they name both values. The unary one puts the value into the
+reason, so its rows split per payload in the error table — Gatling's own `isEL` does the same.
+
 ## The async-vs-blocking contrast — a green report of a load that never happened
 
 `GrpcbinInjectorSimulation` sends one call per session at a planned rate, async or blocking (`-Dblocking=true`), on the unary

@@ -14,9 +14,10 @@ import java.util.function.UnaryOperator;
  *
  * <pre>{@code
  * exec(
- *         serverStream("GRPCBin/DummyServerStream", GRPCBinGrpc.getDummyServerStreamMethod())
- *             .request(session -> DummyMessage.newBuilder().setFBytes(chunk()).build())
- *             .check((messages, last, session) -> messages == DOWNLOAD_CHUNKS ? null : messages + " chunks of " + DOWNLOAD_CHUNKS)
+ *         grpc("GRPCBin/DummyServerStream")
+ *             .serverStream(GRPCBinGrpc.getDummyServerStreamMethod())
+ *             .send(session -> DummyMessage.newBuilder().setFBytes(chunk()).build())
+ *             .check(messageCount().is(DOWNLOAD_CHUNKS))
  * )
  * }</pre>
  *
@@ -46,14 +47,15 @@ public final class GrpcServerStreamActionBuilder<Q, R> implements ActionBuilder 
     }
 
     /** The request that opens the stream, built from the session. */
-    public GrpcServerStreamActionBuilder<Q, R> request(Function<Session, Q> requestFromSession) {
+    public GrpcServerStreamActionBuilder<Q, R> send(Function<Session, Q> requestFromSession) {
         this.request = requestFromSession;
         return this;
     }
 
-    /** The stream's check over the messages that came back. */
-    public GrpcServerStreamActionBuilder<Q, R> check(GrpcStreamCheck<R> reasonOrNull) {
-        this.check = reasonOrNull;
+    /** The stream's check over the messages that came back — several are run in order and the first reason is the KO's. */
+    @SafeVarargs
+    public final GrpcServerStreamActionBuilder<Q, R> check(GrpcStreamCheck<R>... checks) {
+        this.check = GrpcStreamCheck.all(checks);
         return this;
     }
 
@@ -66,7 +68,7 @@ public final class GrpcServerStreamActionBuilder<Q, R> implements ActionBuilder 
     @Override
     public io.gatling.core.action.builder.ActionBuilder asScala() {
         if (request == null) {
-            throw new IllegalStateException(name + ": no request(...)");
+            throw new IllegalStateException(name + ": no send(...)");
         }
         GrpcShape.require(name, method, MethodDescriptor.MethodType.SERVER_STREAMING);
         return (context, next) -> new GrpcServerStreamAction<>(name, channel, method, callOptions, request, check,

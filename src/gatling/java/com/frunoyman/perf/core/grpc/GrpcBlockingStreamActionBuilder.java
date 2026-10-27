@@ -14,9 +14,10 @@ import java.util.function.Function;
  *
  * <pre>{@code
  * exec(
- *         blockingServerStream("GRPCBin/DummyServerStream", GRPCBinGrpc.getDummyServerStreamMethod())
- *             .request(session -> DummyMessage.newBuilder().setFBytes(chunk()).build())
- *             .check((messages, last, session) -> messages == DOWNLOAD_CHUNKS ? null : "short stream")
+ *         grpc("GRPCBin/DummyServerStream")
+ *             .blockingServerStream(GRPCBinGrpc.getDummyServerStreamMethod())
+ *             .send(session -> DummyMessage.newBuilder().setFBytes(chunk()).build())
+ *             .check(messageCount().is(DOWNLOAD_CHUNKS))
  * )
  * }</pre>
  *
@@ -43,21 +44,22 @@ public final class GrpcBlockingStreamActionBuilder<Q, R> implements ActionBuilde
     }
 
     /** The request that opens the stream, built from the session. */
-    public GrpcBlockingStreamActionBuilder<Q, R> request(Function<Session, Q> requestFromSession) {
+    public GrpcBlockingStreamActionBuilder<Q, R> send(Function<Session, Q> requestFromSession) {
         this.request = requestFromSession;
         return this;
     }
 
-    /** The stream's check over the messages that came back. */
-    public GrpcBlockingStreamActionBuilder<Q, R> check(GrpcStreamCheck<R> reasonOrNull) {
-        this.check = reasonOrNull;
+    /** The stream's check over the messages that came back — several are run in order and the first reason is the KO's. */
+    @SafeVarargs
+    public final GrpcBlockingStreamActionBuilder<Q, R> check(GrpcStreamCheck<R>... checks) {
+        this.check = GrpcStreamCheck.all(checks);
         return this;
     }
 
     @Override
     public io.gatling.core.action.builder.ActionBuilder asScala() {
         if (request == null) {
-            throw new IllegalStateException(name + ": no request(...)");
+            throw new IllegalStateException(name + ": no send(...)");
         }
         GrpcShape.require(name, method, MethodDescriptor.MethodType.SERVER_STREAMING);
         return (context, next) -> new GrpcBlockingStreamAction<>(name, channel, method, request, check,

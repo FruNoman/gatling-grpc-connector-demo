@@ -6,19 +6,22 @@ from 2023. That is the trade my [previous demo](https://github.com/FruNoman/grpc
 
 This one doesn't trade: **Gatling 3.16.0, no Enterprise licence, no community gRPC library.** The gRPC support is ~1 150 lines of
 Java in `core/grpc/` — a custom Gatling action over protoc's generated **method descriptors**, written once, and after that a gRPC
-call is named by the RPC and nothing else:
+call reads the way Gatling Enterprise's own gRPC DSL does:
 
 ```java
 exec(
-        grpc("GRPCBin/DummyUnary", GRPCBinGrpc.getDummyUnaryMethod())
-            .request(session -> DummyMessage.newBuilder()
+        grpc("GRPCBin/DummyUnary")
+            .unary(GRPCBinGrpc.getDummyUnaryMethod())
+            .send(session -> DummyMessage.newBuilder()
                     .setFString(session.getString("payload"))
                     .build())
-            .check((response, session) -> response.getFString().equals(session.getString("payload"))
-                    ? null
-                    : "echo differs from the request")
+            .check(response(DummyMessage::getFString).isEL("#{payload}"))
 );
 ```
+
+Two things are deliberately not Gatling's: the channel is handed to the actions class instead of being a protocol in `setUp`, and
+a stream is one action timed as a whole (`grpc(name).serverStream(…).send(…).check(messageCount().is(10))`) instead of a send and
+an await. A lambda `.check((response, session) -> reasonOrNull)` stays for whatever `response(…)` and `messageCount()` cannot say.
 
 No stub supplier, no method reference, no generated stub type in the feature package: `getDummyUnaryMethod()` already carries the
 marshallers, the method's full name and its `MethodType`, and the request/response types are inferred from it. The generated
@@ -53,8 +56,8 @@ dependencies {
 
 No gRPC library for Gatling at all. The connector is four things:
 
-1. a `GrpcDsl` a feature's actions class extends, so `grpc(name, descriptor)` has the run's channel without the call site passing
-   anything;
+1. a `GrpcDsl` a feature's actions class extends, so `grpc(name).unary(descriptor)` has the run's channel without the call site
+   passing anything, and `response(…)` / `messageCount()` are there to check with;
 2. a `GrpcActionBuilder` implementing Gatling's Java-DSL `ActionBuilder`, so `exec(grpc(...))` composes like `exec(http(...))`;
 3. an `Action` that makes the async `ClientCalls` call and writes the result into Gatling's `StatsEngine` — one `logResponse` with
    a start, an end, OK/KO and a reason;
@@ -118,7 +121,8 @@ global p95 of this run is 10 027 ms, and it is the download, nothing else.
 ## Architecture
 
 ```
-core/grpc/          GrpcDsl                                    — grpc / serverStream / bidiStream, inherited by an actions class
+core/grpc/          GrpcDsl + GrpcRequest                      — grpc(name).unary / serverStream / bidiStream, inherited
+                    GrpcResponseCheck, GrpcMessageCount        — response(…).isEL(…), messageCount().is(n)
                     GrpcActionBuilder + GrpcUnaryAction        — a unary call
                     GrpcServerStreamActionBuilder + Action     — a chunked download, timed whole
                     GrpcBidiStreamActionBuilder + Action       — a chunked upload under flow control
@@ -153,8 +157,8 @@ wall-clock moment with the service innocent: measured on the smoke profile with 
 typecheck — a `MethodDescriptor` typechecks for any shape, because the shape is data on it rather than a type. So each builder
 asserts `method.getType()` in `asScala()`, which Gatling calls while the scenario is being built: a server-streaming RPC handed to
 the unary builder fails before the first user is injected, with `GRPCBin/WrongShape: grpcbin.GRPCBin/DummyServerStream is
-SERVER_STREAMING, this builder sends [UNARY]`. A runtime check at startup instead of a compile error is a real step down; it is
-the price of the call site.
+SERVER_STREAMING, this builder sends [UNARY]` — `grpc(name).unary(…)` names the shape, but only the descriptor knows the real one.
+A runtime check at startup instead of a compile error is a real step down; it is the price of the call site.
 
 **`ClientCalls.asyncBidiStreamingCall` starts the call before it gives you the request observer.** For a bidi upload you want
 gRPC's flow control — send while the stream `isReady()`, let the server's reading pace you — and `setOnReadyHandler` throws once

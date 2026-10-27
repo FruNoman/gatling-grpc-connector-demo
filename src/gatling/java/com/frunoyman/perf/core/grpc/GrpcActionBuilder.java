@@ -14,9 +14,10 @@ import java.util.function.UnaryOperator;
  *
  * <pre>{@code
  * exec(
- *         grpc("GRPCBin/DummyUnary", GRPCBinGrpc.getDummyUnaryMethod())
- *             .request(session -> DummyMessage.newBuilder().setFString(session.getString("payload")).build())
- *             .check((response, session) -> response.getFString().equals(session.getString("payload")) ? null : "echo differs")
+ *         grpc("GRPCBin/DummyUnary")
+ *             .unary(GRPCBinGrpc.getDummyUnaryMethod())
+ *             .send(session -> DummyMessage.newBuilder().setFString(session.getString("payload")).build())
+ *             .check(response(DummyMessage::getFString).isEL("#{payload}"))
  * )
  * }</pre>
  *
@@ -47,14 +48,15 @@ public final class GrpcActionBuilder<Q, R> implements ActionBuilder {
     }
 
     /** The request message, built from the session. */
-    public GrpcActionBuilder<Q, R> request(Function<Session, Q> requestFromSession) {
+    public GrpcActionBuilder<Q, R> send(Function<Session, Q> requestFromSession) {
         this.request = requestFromSession;
         return this;
     }
 
-    /** The answer's check ({@link GrpcCheck}). */
-    public GrpcActionBuilder<Q, R> check(GrpcCheck<R> reasonOrNull) {
-        this.check = reasonOrNull;
+    /** The answer's check ({@link GrpcCheck}) — several are run in order and the first reason is the KO's. */
+    @SafeVarargs
+    public final GrpcActionBuilder<Q, R> check(GrpcCheck<R>... checks) {
+        this.check = GrpcCheck.all(checks);
         return this;
     }
 
@@ -78,7 +80,7 @@ public final class GrpcActionBuilder<Q, R> implements ActionBuilder {
     @Override
     public io.gatling.core.action.builder.ActionBuilder asScala() {
         if (request == null) {
-            throw new IllegalStateException(name + ": no request(...)");
+            throw new IllegalStateException(name + ": no send(...)");
         }
         GrpcShape.require(name, method, MethodDescriptor.MethodType.UNARY);
         return (context, next) -> new GrpcUnaryAction<>(name, channel, method, callOptions, request, check,

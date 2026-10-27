@@ -2,8 +2,10 @@ package com.frunoyman.perf.core.grpc;
 
 import io.grpc.MethodDescriptor;
 
+import java.util.function.Function;
+
 /**
- * The connector's DSL — a feature's actions class extends this, and a gRPC call is written as the RPC itself:
+ * The connector's DSL — a feature's actions class extends this, and a gRPC call reads the way Gatling's own gRPC DSL does:
  *
  * <pre>{@code
  * public class GrpcbinActions extends GrpcDsl {
@@ -14,9 +16,10 @@ import io.grpc.MethodDescriptor;
  *
  *     public ChainBuilder dummyUnary() {
  *         return exec(
- *                 grpc("GRPCBin/DummyUnary", GRPCBinGrpc.getDummyUnaryMethod())
- *                     .request(session -> DummyMessage.newBuilder().setFString(session.getString("payload")).build())
- *                     .check((response, session) -> response.getFString().equals(session.getString("payload")) ? null : "echo differs")
+ *                 grpc("GRPCBin/DummyUnary")
+ *                     .unary(GRPCBinGrpc.getDummyUnaryMethod())
+ *                     .send(session -> DummyMessage.newBuilder().setFString(session.getString("payload")).build())
+ *                     .check(response(DummyMessage::getFString).isEL("#{payload}"))
  *         );
  *     }
  * }
@@ -28,7 +31,9 @@ import io.grpc.MethodDescriptor;
  * {@code ClientCalls.asyncUnaryCall(getChannel().newCall(getXxxMethod(), getCallOptions()), request, responseObserver)} — which is
  * what these actions do themselves, on the run's {@link GrpcChannel}. {@code Q} and {@code R} are inferred from the descriptor.
  * <p>
- * The shape the method reference used to guarantee at compile time is checked at simulation start instead ({@link GrpcShape}).
+ * Unlike Gatling's, the channel is not a protocol in {@code setUp}: it is handed to the actions class, and a stream is one action
+ * timed as a whole, not a send and an await. The shape the method reference used to guarantee at compile time is checked at
+ * simulation start instead ({@link GrpcShape}).
  */
 public abstract class GrpcDsl {
 
@@ -38,28 +43,18 @@ public abstract class GrpcDsl {
         this.channel = channel;
     }
 
-    /** A unary RPC ({@link GrpcActionBuilder}) — {@code name} is the request's name in the report and the assertions. */
-    protected final <Q, R> GrpcActionBuilder<Q, R> grpc(String name, MethodDescriptor<Q, R> method) {
-        return GrpcActionBuilder.of(channel, name, method);
+    /** A gRPC request named {@code name} in the report and the assertions; the RPC and its shape come next ({@link GrpcRequest}). */
+    protected final GrpcRequest grpc(String name) {
+        return new GrpcRequest(channel, name);
     }
 
-    /** A server-streaming RPC, timed as a whole stream ({@link GrpcServerStreamActionBuilder}). */
-    protected final <Q, R> GrpcServerStreamActionBuilder<Q, R> serverStream(String name, MethodDescriptor<Q, R> method) {
-        return GrpcServerStreamActionBuilder.of(channel, name, method);
+    /** One value of a unary answer, to compare: {@code response(DummyMessage::getFString).isEL("#{payload}")}. */
+    protected static <R, T> GrpcResponseCheck<R, T> response(Function<R, T> extract) {
+        return new GrpcResponseCheck<>(extract);
     }
 
-    /** A bidirectional- or client-streaming RPC, sent under flow control ({@link GrpcBidiStreamActionBuilder}). */
-    protected final <Q, R> GrpcBidiStreamActionBuilder<Q, R> bidiStream(String name, MethodDescriptor<Q, R> method) {
-        return GrpcBidiStreamActionBuilder.of(channel, name, method);
-    }
-
-    /** The unary counter-example, on the blocking call ({@link GrpcBlockingActionBuilder}) — never for a real service. */
-    protected final <Q, R> GrpcBlockingActionBuilder<Q, R> blockingGrpc(String name, MethodDescriptor<Q, R> method) {
-        return GrpcBlockingActionBuilder.of(channel, name, method);
-    }
-
-    /** The server-streaming counter-example, drained on the Gatling thread ({@link GrpcBlockingStreamActionBuilder}). */
-    protected final <Q, R> GrpcBlockingStreamActionBuilder<Q, R> blockingServerStream(String name, MethodDescriptor<Q, R> method) {
-        return GrpcBlockingStreamActionBuilder.of(channel, name, method);
+    /** How many messages a stream delivered: {@code messageCount().is(10)}. */
+    protected static GrpcMessageCount messageCount() {
+        return GrpcMessageCount.INSTANCE;
     }
 }
