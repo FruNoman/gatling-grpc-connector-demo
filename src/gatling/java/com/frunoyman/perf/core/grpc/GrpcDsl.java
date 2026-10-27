@@ -53,7 +53,12 @@ public abstract class GrpcDsl {
         return new GrpcResponseCheck<>(extract);
     }
 
-    /** How many messages a stream delivered: {@code messageCount().is(10)}. */
+    /** A unary check on a stream's last message — a client stream's answer: {@code last(response(…).is(10))}. */
+    protected static <R> GrpcStreamCheck<R> last(GrpcCheck<R> check) {
+        return GrpcStreamCheck.last(check);
+    }
+
+        /** How many messages a stream delivered: {@code messageCount().is(10)}. */
     protected static GrpcMessageCount messageCount() {
         return GrpcMessageCount.INSTANCE;
     }

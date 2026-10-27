@@ -15,7 +15,15 @@ public interface GrpcStreamCheck<R> {
 
     String reasonOrNull(int messages, R last, Session session);
 
-    /** Every check in order; the first reason wins — what {@code .check(a, b, c)} runs. */
+    /**
+     * A unary check run on the stream's last message — a client stream's one answer:
+     * {@code last(response(DummyMessage::getFInt32).is(10))}. A stream that delivered nothing fails with that as the reason.
+     */
+    static <R> GrpcStreamCheck<R> last(GrpcCheck<R> check) {
+        return (messages, last, session) -> last == null ? "no message in the stream" : check.reasonOrNull(last, session);
+    }
+
+        /** Every check in order; the first reason wins — what {@code .check(a, b, c)} runs. */
     @SafeVarargs
     static <R> GrpcStreamCheck<R> all(GrpcStreamCheck<R>... checks) {
         return (messages, last, session) -> {

@@ -2,32 +2,40 @@ package com.frunoyman.perf.grpcbin.scenarios;
 
 import com.frunoyman.perf.core.config.LoadProfile;
 import com.frunoyman.perf.grpcbin.actions.GrpcbinActions;
+import com.frunoyman.perf.grpcbin.actions.GrpcbinClientStreamActions;
 import com.frunoyman.perf.grpcbin.feeders.GrpcbinFeeders;
 import io.gatling.javaapi.core.ChainBuilder;
 
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.feed;
 
-/** What a client of a chunked-transfer service does, written out: one small call, one download, one upload. */
+/** What a client of a chunked-transfer service does, written out: every gRPC call shape, one after another. */
 public class GrpcbinScenarios {
 
     private final GrpcbinActions grpcbin;
+    private final GrpcbinClientStreamActions clientStream;
 
-    public GrpcbinScenarios(GrpcbinActions grpcbin) {
+    public GrpcbinScenarios(GrpcbinActions grpcbin, GrpcbinClientStreamActions clientStream) {
         this.grpcbin = grpcbin;
+        this.clientStream = clientStream;
     }
 
     /**
-     * The session: a unary echo (the baseline latency of the chain), then the chunked download, then the chunked upload — three
-     * calls, think time between them. Every RPC the demo covers is in it, so any profile exercises all three.
+     * The session, every RPC shape once with think time between them, so any profile exercises all of them: a unary call with no
+     * input (gRPC's "GET"), a unary echo with a body (its "POST", the baseline latency of the chain), the chunked download (server
+     * stream), the chunked upload acknowledged per chunk (bidi stream) and the batch upload with one receipt (client stream).
      */
     public ChainBuilder transfer(LoadProfile loadProfile) {
         return exec(feed(GrpcbinFeeders.payloads()))
+                .exec(grpcbin.index())
+                .pause(loadProfile.pause())
                 .exec(grpcbin.dummyUnary())
                 .pause(loadProfile.pause())
                 .exec(grpcbin.dummyServerStream())
                 .pause(loadProfile.pause())
                 .exec(grpcbin.dummyBidirectionalStreamStream())
+                .pause(loadProfile.pause())
+                .exec(clientStream.dummyClientStream())
                 .pause(loadProfile.pause());
     }
 

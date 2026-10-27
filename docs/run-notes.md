@@ -170,6 +170,24 @@ BUILD FAILED in 52s
 The reasons are written by the check, not the call site, and they name both values. The unary one puts the value into the
 reason, so its rows split per payload in the error table — Gatling's own `isEL` does the same.
 
+## Every call shape in one session
+
+The session gained the two shapes it lacked: `GRPCBin/Index` (unary with no input — gRPC's "GET") and `GRPCBin/DummyClientStream`
+(client streaming — a batch upload, ten 64 KB chunks out, one receipt back). grpcbin's own client-stream RPC is broken
+server-side, so the simulation serves it in-process (`MockClientStreamServer`) from the same proto and calls it on its own
+channel; the numbers of that request are the generator's own JVM, not a service.
+
+```bash
+./gradlew gatlingRun -Dsimulation=GrpcbinSimulation -Dprofile=smoke -Dusers=3
+```
+
+51 requests, 0 KO, every assertion green — p95 index 62 ms, echo 7 ms, download 10 045 ms, bidi upload 31 ms, batch upload 37 ms;
+own counting 54 sent / 51 answered / 3 cut, 213 messages (12 + 12 + 90 + 90 + 9).
+
+Proven red both ways: the receipt expected to count 11 chunks → `response is '10', expected '11'`, 9 of 9 KO; and
+`.clientStream(…)` handed the bidi descriptor → the simulation fails before the first user with
+`GRPCBin/DummyClientStream: grpcbin.GRPCBin/DummyBidirectionalStreamStream is BIDI_STREAMING, this builder sends [CLIENT_STREAMING]`.
+
 ## The async-vs-blocking contrast — a green report of a load that never happened
 
 `GrpcbinInjectorSimulation` sends one call per session at a planned rate, async or blocking (`-Dblocking=true`), on the unary

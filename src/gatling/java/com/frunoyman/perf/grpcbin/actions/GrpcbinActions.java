@@ -6,6 +6,8 @@ import com.frunoyman.perf.grpcbin.config.GrpcbinSettings;
 import com.google.protobuf.ByteString;
 import grpcbin.GRPCBinGrpc;
 import grpcbin.Grpcbin.DummyMessage;
+import grpcbin.Grpcbin.EmptyMessage;
+import grpcbin.Grpcbin.IndexReply;
 import io.gatling.javaapi.core.ChainBuilder;
 
 import java.util.concurrent.ThreadLocalRandom;
@@ -22,7 +24,8 @@ import static io.gatling.javaapi.core.CoreDsl.exec;
  * <p>
  * grpcbin ({@code moul/grpcbin}) is an echo server built to exercise clients — the streaming counterpart of httpbin — so every
  * check here is an echo check: the answer must be what was sent, and a stream must deliver every message. Its fourth shape,
- * {@code DummyClientStream}, is <b>broken server-side</b> and is deliberately not here: see docs/run-notes.md.
+ * {@code DummyClientStream}, is <b>broken server-side</b>: it is called on an in-process mock instead, in
+ * {@link GrpcbinClientStreamActions} (docs/run-notes.md).
  */
 public class GrpcbinActions extends GrpcDsl {
 
@@ -43,7 +46,17 @@ public class GrpcbinActions extends GrpcDsl {
         this.chunk = randomChunk(settings.chunkBytes());
     }
 
-    /** {@code GRPCBin/DummyUnary} — the echo: the smallest call there is, and the baseline every stream is read against. */
+    /** {@code GRPCBin/Index} — a unary call with no input, gRPC's "GET": the server describes its endpoints. */
+    public ChainBuilder index() {
+        return exec(
+                grpc("GRPCBin/Index")
+                    .unary(GRPCBinGrpc.getIndexMethod())
+                    .send(session -> EmptyMessage.getDefaultInstance())
+                    .check(response(IndexReply::getEndpointsCount).gt(0))
+        );
+    }
+
+        /** {@code GRPCBin/DummyUnary} — the echo: the smallest call there is, and the baseline every stream is read against. */
     public ChainBuilder dummyUnary() {
         return exec(
                 grpc("GRPCBin/DummyUnary")

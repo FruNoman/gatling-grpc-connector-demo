@@ -30,9 +30,19 @@ async stub's own method is nothing but
 itself and the stub disappears.
 
 It shows up in the report, the assertions and the error table under its own name, next to HTTP requests if the project has any.
-All four RPC shapes are covered: unary, server streaming, bidi streaming, and client streaming through the same builder as bidi —
-the descriptor's own `MethodType` is what tells those last two apart (grpcbin's client-stream endpoint is broken server-side — see
-below).
+Every gRPC call shape is in the demo's session — gRPC has no GET or POST (every call is an HTTP/2 POST), it has four shapes:
+
+| Call | Shape | What it stands for | Request in the report |
+|---|---|---|---|
+| `grpc("GRPCBin/Index").unary(…)` | unary, no input | a "GET" | `GRPCBin/Index` |
+| `grpc("GRPCBin/DummyUnary").unary(…)` | unary with a body | a "POST" — the echo | `GRPCBin/DummyUnary` |
+| `grpc("GRPCBin/DummyServerStream").serverStream(…)` | server streaming | batch download: 1 request → 10 chunks | `GRPCBin/DummyServerStream` |
+| `grpc("GRPCBin/DummyBidirectionalStreamStream").bidiStream(…)` | bidi streaming | upload acknowledged per chunk: N → N | `GRPCBin/DummyBidirectionalStreamStream` |
+| `grpc("GRPCBin/DummyClientStream").clientStream(…)` | client streaming | batch upload with one receipt: N → 1 | `GRPCBin/DummyClientStream` |
+
+grpcbin's own `DummyClientStream` is broken server-side (below), so the simulation serves that one RPC in-process
+(`MockClientStreamServer`, same proto, same generated descriptor) and calls it on its own channel — the call is the one a working
+server would get; its latency is the generator's own JVM, not a service's.
 
 The target is the same as the predecessor's: [grpcbin](https://github.com/moul/grpcbin) in Docker, an open-source echo gRPC
 server built for exercising clients — the streaming counterpart of httpbin.
@@ -120,9 +130,12 @@ A stream is **one** action and **one** request in the report, timed from the fir
 | Builder | Under the hood | Measured |
 |---|---|---|
 | `.serverStream(d).send(…)` | `asyncServerStreamingCall`; messages counted in `onNext` | the whole download (grpcbin: ten messages, one per second → ~10 s) |
-| `.bidiStream(d).send(n, (session, i) -> …)` | `asyncBidiStreamingCall`, or `asyncClientStreamingCall` when the descriptor is `CLIENT_STREAMING`; message *i* is built and sent from an on-ready handler while `isReady()` | the whole upload, paced by gRPC's flow control instead of buffering every chunk in the generator's heap |
+| `.bidiStream(d).send(n, (session, i) -> …)` | `asyncBidiStreamingCall`; message *i* is built and sent from an on-ready handler while `isReady()` | the whole upload, paced by gRPC's flow control instead of buffering every chunk in the generator's heap |
+| `.clientStream(d).send(n, (session, i) -> …)` | the same builder, `asyncClientStreamingCall` | the whole batch upload until its one receipt |
 
-`.check(messageCount().is(10))` catches a server that closes the stream early.
+`.check(messageCount().is(10))` catches a server that closes the stream early; a client stream's receipt is checked with
+`last(…)`: `.check(messageCount().is(1), last(response(DummyMessage::getFInt32).is(uploadChunks)))`. `.bidiStream` and
+`.clientStream` each accept only their own shape — the wrong descriptor fails the simulation before the first user.
 
 ### The run around the calls
 
@@ -148,7 +161,7 @@ same project and the same scenarios as the HTTP tests.
 ```bash
 docker compose up -d        # grpcbin on :9000 (plaintext)
 
-# the headline: 50 concurrent users, three RPC shapes per session
+# the headline: 50 concurrent users, every RPC shape per session
 ./gradlew gatlingRun -Dsimulation=GrpcbinSimulation -Dprofile=concurrency -Dusers=50 -DrampUp=15 -DsteadyState=60
 
 # what runs after every change
@@ -207,7 +220,9 @@ core/config/        Environment, Profile, LoadProfile          — HOCON per tar
 core/simulation/    Injections, Sessions, Limits               — a profile's injection, its plan in words, its assertions
 core/stats/         RunStats, RunSummaryLog                    — the run's own numbers, including messages per stream
 grpcbin/actions/    GrpcbinActions                             — one method per RPC, the request built from the session
-grpcbin/scenarios/  GrpcbinScenarios                           — the session written out: echo → download → upload
+                    GrpcbinClientStreamActions                 — the client-stream batch upload, on the mock's channel
+grpcbin/mock/       MockClientStreamServer                     — DummyClientStream served in-process (grpcbin's is broken)
+grpcbin/scenarios/  GrpcbinScenarios                           — the session: index → echo → download → upload → batch upload
 grpcbin/simulations/GrpcbinSimulation, GrpcbinInjectorSimulation
 docs/               load-model.md (what a run answers, before the code), run-notes.md (what the runs did)
 ```
@@ -261,9 +276,8 @@ not the network's (10.3 s per stream against 0.2 s for a unary call). It makes g
 with a drip like that, the difference between timing the whole stream and timing its opening is 10 051 ms against ~5 ms.
 
 **`DummyClientStream` is still broken server-side** — `INTERNAL: grpc: error while marshaling: proto: Marshal called with nil`,
-re-verified with grpcurl rather than taken from the predecessor's notes. The connector's streaming-request builder covers client
-streaming — a `CLIENT_STREAMING` descriptor is accepted and sent through `asyncClientStreamingCall`; the demo loads the bidi RPC
-instead.
+re-verified with grpcurl rather than taken from the predecessor's notes. So the demo serves that one RPC itself, in-process, from
+the same proto — the client-stream call is real, only the server is a stand-in.
 
 ## License
 

@@ -8,6 +8,8 @@ import com.frunoyman.perf.core.simulation.Sessions;
 import com.frunoyman.perf.core.stats.RunStats;
 import com.frunoyman.perf.core.stats.RunSummaryLog;
 import com.frunoyman.perf.grpcbin.actions.GrpcbinActions;
+import com.frunoyman.perf.grpcbin.actions.GrpcbinClientStreamActions;
+import com.frunoyman.perf.grpcbin.mock.MockClientStreamServer;
 import com.frunoyman.perf.grpcbin.config.GrpcbinSettings;
 import com.frunoyman.perf.grpcbin.scenarios.GrpcbinScenarios;
 import io.gatling.javaapi.core.Simulation;
@@ -19,7 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * grpcbin's three RPC shapes under one load profile ({@code -Dprofile}) — the demo's main run. There is no Gatling protocol: each
+ * grpcbin's four RPC shapes under one load profile ({@code -Dprofile}) — the demo's main run. There is no Gatling protocol: each
  * action carries its own call, and the channel is built in {@code before()} and closed in {@code after()}.
  * <p>
  * The numbers come from the load model ({@code docs/load-model.md}): the headline run is 50 concurrent users
@@ -39,11 +41,19 @@ public class GrpcbinSimulation extends Simulation {
     private static final int UNARY_P95_MS = 500;
     private static final int DOWNLOAD_P95_MS = 11_000;
     private static final int UPLOAD_P95_MS = 1_000;
+    /** The two calls added after the baseline — limits by the same rule, before a baseline of their own exists. */
+    private static final int INDEX_P95_MS = 500;
+    private static final int BATCH_UPLOAD_P95_MS = 1_000;
 
     private final GrpcbinSettings settings = GrpcbinSettings.load();
     private final LoadProfile loadProfile = LoadProfile.fromSystemProperties(DEFAULTS);
     private final GrpcChannel channel = new GrpcChannel(settings.target(), settings.plaintext(), settings.deadlineMs());
-    private final GrpcbinScenarios scenarios = new GrpcbinScenarios(new GrpcbinActions(channel, settings));
+    /** grpcbin's DummyClientStream is broken server-side: the simulation serves it in-process and calls it on its own channel. */
+    private final MockClientStreamServer clientStreamMock = new MockClientStreamServer(settings.clientStreamMockPort());
+    private final GrpcChannel clientStreamChannel =
+            new GrpcChannel("localhost:" + settings.clientStreamMockPort(), true, settings.deadlineMs());
+    private final GrpcbinScenarios scenarios = new GrpcbinScenarios(new GrpcbinActions(channel, settings),
+            new GrpcbinClientStreamActions(clientStreamChannel, settings));
     private final Limits limits = Limits.of(loadProfile, p95Limits());
 
     {
@@ -56,6 +66,8 @@ public class GrpcbinSimulation extends Simulation {
     public void before() {
         RunStats.start();
         channel.start();
+        clientStreamMock.start();
+        clientStreamChannel.start();
         LOG.info("{} against {} — {} chunks of {} bytes per upload — plan:", loadProfile.profile(), channel,
                 settings.uploadChunks(), settings.chunkBytes());
         Injections.plan(loadProfile).forEach(line -> LOG.info("  {}", line));
@@ -66,15 +78,19 @@ public class GrpcbinSimulation extends Simulation {
     public void after() {
         RunStats.stop();
         channel.stop();
+        clientStreamChannel.stop();
+        clientStreamMock.stop();
         RunSummaryLog.log(RunStats.summary());
     }
 
     /** A p95 per request name: a unary echo, a ten-second drip and a 640 KB upload in one percentile would hide each other. */
     private static Map<String, Integer> p95Limits() {
         Map<String, Integer> p95Ms = new LinkedHashMap<>();
+        p95Ms.put("GRPCBin/Index", INDEX_P95_MS);
         p95Ms.put("GRPCBin/DummyUnary", UNARY_P95_MS);
         p95Ms.put("GRPCBin/DummyServerStream", DOWNLOAD_P95_MS);
         p95Ms.put("GRPCBin/DummyBidirectionalStreamStream", UPLOAD_P95_MS);
+        p95Ms.put("GRPCBin/DummyClientStream", BATCH_UPLOAD_P95_MS);
         return p95Ms;
     }
 }

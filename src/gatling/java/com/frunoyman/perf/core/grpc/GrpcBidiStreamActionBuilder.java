@@ -20,8 +20,9 @@ import java.util.function.UnaryOperator;
  * )
  * }</pre>
  *
- * A <b>client-streaming</b> RPC goes through this builder too — same shape from the caller's side, it simply answers with one
- * message instead of N — and the descriptor is what tells the two apart: the action sends a {@code CLIENT_STREAMING} descriptor
+ * A <b>client-streaming</b> RPC goes through this builder too, as {@code grpc(name).clientStream(descriptor)} — same shape from
+ * the caller's side, it simply answers with one message instead of N (check it with {@code last(response(…)…)}) — and the
+ * descriptor is what tells the two apart: the action sends a {@code CLIENT_STREAMING} descriptor
  * through {@code ClientCalls.asyncClientStreamingCall} and a {@code BIDI_STREAMING} one through {@code asyncBidiStreamingCall},
  * which is how many responses gRPC requests up front. The old method reference could not express that difference at all.
  * <p>
@@ -40,20 +41,27 @@ public final class GrpcBidiStreamActionBuilder<Q, R> implements ActionBuilder {
     private final GrpcChannel channel;
     private final String name;
     private final MethodDescriptor<Q, R> method;
+    private final MethodDescriptor.MethodType shape;
     private int count = -1;
     private Message<Q> message;
     private GrpcStreamCheck<R> check = (messages, last, session) -> null;
     private UnaryOperator<CallOptions> callOptions = UnaryOperator.identity();
 
-    private GrpcBidiStreamActionBuilder(GrpcChannel channel, String name, MethodDescriptor<Q, R> method) {
+    private GrpcBidiStreamActionBuilder(GrpcChannel channel, String name, MethodDescriptor<Q, R> method,
+                                        MethodDescriptor.MethodType shape) {
         this.channel = channel;
         this.name = name;
         this.method = method;
+        this.shape = shape;
     }
 
-    /** {@code name} — the request's name in the report and the assertions, the RPC's own. */
-    static <Q, R> GrpcBidiStreamActionBuilder<Q, R> of(GrpcChannel channel, String name, MethodDescriptor<Q, R> method) {
-        return new GrpcBidiStreamActionBuilder<>(channel, name, method);
+    /**
+     * {@code name} — the request's name in the report and the assertions, the RPC's own; {@code shape} — {@code BIDI_STREAMING}
+     * for {@code .bidiStream(…)}, {@code CLIENT_STREAMING} for {@code .clientStream(…)}, checked against the descriptor at start.
+     */
+    static <Q, R> GrpcBidiStreamActionBuilder<Q, R> of(GrpcChannel channel, String name, MethodDescriptor<Q, R> method,
+                                                       MethodDescriptor.MethodType shape) {
+        return new GrpcBidiStreamActionBuilder<>(channel, name, method, shape);
     }
 
     /**
@@ -84,7 +92,7 @@ public final class GrpcBidiStreamActionBuilder<Q, R> implements ActionBuilder {
         if (message == null || count < 0) {
             throw new IllegalStateException(name + ": no send(count, ...)");
         }
-        GrpcShape.require(name, method, MethodDescriptor.MethodType.BIDI_STREAMING, MethodDescriptor.MethodType.CLIENT_STREAMING);
+        GrpcShape.require(name, method, shape);
         return (context, next) -> new GrpcBidiStreamAction<>(name, channel, method, callOptions, count, message, check,
                 context.coreComponents().statsEngine(), context.coreComponents().clock(), next);
     }
