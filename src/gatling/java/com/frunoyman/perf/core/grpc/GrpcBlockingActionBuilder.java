@@ -12,8 +12,9 @@ import java.util.function.Function;
  *
  * <pre>{@code
  * exec(
- *         blockingGrpc("GRPCBin/DummyUnary", GRPCBinGrpc.getDummyUnaryMethod())
- *             .request(session -> DummyMessage.newBuilder().setFString(session.getString("payload")).build())
+ *         grpc("GRPCBin/DummyUnary")
+ *             .blockingUnary(GRPCBinGrpc.getDummyUnaryMethod())
+ *             .send(session -> DummyMessage.newBuilder().setFString(session.getString("payload")).build())
  * )
  * }</pre>
  *
@@ -43,21 +44,22 @@ public final class GrpcBlockingActionBuilder<Q, R> implements ActionBuilder {
     }
 
     /** The request message, built from the session. */
-    public GrpcBlockingActionBuilder<Q, R> request(Function<Session, Q> requestFromSession) {
+    public GrpcBlockingActionBuilder<Q, R> send(Function<Session, Q> requestFromSession) {
         this.request = requestFromSession;
         return this;
     }
 
-    /** The answer's check ({@link GrpcCheck}). */
-    public GrpcBlockingActionBuilder<Q, R> check(GrpcCheck<R> reasonOrNull) {
-        this.check = reasonOrNull;
+    /** The answer's check ({@link GrpcCheck}) — several are run in order and the first reason is the KO's. */
+    @SafeVarargs
+    public final GrpcBlockingActionBuilder<Q, R> check(GrpcCheck<R>... checks) {
+        this.check = GrpcCheck.all(checks);
         return this;
     }
 
     @Override
     public io.gatling.core.action.builder.ActionBuilder asScala() {
         if (request == null) {
-            throw new IllegalStateException(name + ": no request(...)");
+            throw new IllegalStateException(name + ": no send(...)");
         }
         GrpcShape.require(name, method, MethodDescriptor.MethodType.UNARY);
         return (context, next) -> new GrpcBlockingUnaryAction<>(name, channel, method, request, check,

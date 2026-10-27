@@ -16,9 +16,9 @@ import static io.gatling.javaapi.core.CoreDsl.exec;
  * grpcbin's RPCs — one method per RPC, named after it, the request built from the session, the answer checked. Reads
  * {@code #{payload}} / {@code #{payloadId}} (the feeder of {@code GrpcbinFeeders}).
  * <p>
- * A call is the RPC's generated descriptor and nothing else ({@link GrpcDsl}): no stub, no method reference, and no generated
- * stub type in this package — only {@code GRPCBinGrpc.getXxxMethod()}, which already knows the marshallers, the method's full
- * name and its shape. The deadline comes from the channel's config, per call.
+ * A call reads as Gatling's own gRPC DSL — {@code grpc(name).unary(descriptor).send(...).check(...)} ({@link GrpcDsl}): no stub,
+ * no method reference, and no generated stub type in this package — only {@code GRPCBinGrpc.getXxxMethod()}, which already knows
+ * the marshallers, the method's full name and its shape. The deadline comes from the channel's config, per call.
  * <p>
  * grpcbin ({@code moul/grpcbin}) is an echo server built to exercise clients — the streaming counterpart of httpbin — so every
  * check here is an echo check: the answer must be what was sent, and a stream must deliver every message. Its fourth shape,
@@ -46,43 +46,40 @@ public class GrpcbinActions extends GrpcDsl {
     /** {@code GRPCBin/DummyUnary} — the echo: the smallest call there is, and the baseline every stream is read against. */
     public ChainBuilder dummyUnary() {
         return exec(
-                grpc("GRPCBin/DummyUnary", GRPCBinGrpc.getDummyUnaryMethod())
-                    .request(session -> DummyMessage.newBuilder()
+                grpc("GRPCBin/DummyUnary")
+                    .unary(GRPCBinGrpc.getDummyUnaryMethod())
+                    .send(session -> DummyMessage.newBuilder()
                             .setFString(session.getString("payload"))
                             .setFInt32(session.getInt("payloadId"))
                             .build())
-                    .check((response, session) -> response.getFString().equals(session.getString("payload"))
-                            ? null
-                            : "echo '" + response.getFString() + "' is not the request")
+                    .check(response(DummyMessage::getFString).isEL("#{payload}"))
         );
     }
 
     /** {@code GRPCBin/DummyServerStream} — a chunked download: one request, ten chunks back, timed as a whole. */
     public ChainBuilder dummyServerStream() {
         return exec(
-                serverStream("GRPCBin/DummyServerStream", GRPCBinGrpc.getDummyServerStreamMethod())
-                    .request(session -> DummyMessage.newBuilder()
+                grpc("GRPCBin/DummyServerStream")
+                    .serverStream(GRPCBinGrpc.getDummyServerStreamMethod())
+                    .send(session -> DummyMessage.newBuilder()
                             .setFString(session.getString("payload"))
                             .setFBytes(chunk)
                             .build())
-                    .check((messages, last, session) -> messages == DOWNLOAD_CHUNKS
-                            ? null
-                            : messages + " chunks downloaded of " + DOWNLOAD_CHUNKS)
+                    .check(messageCount().is(DOWNLOAD_CHUNKS))
         );
     }
 
     /** {@code GRPCBin/DummyBidirectionalStreamStream} — a chunked upload: every chunk out must come back acknowledged. */
     public ChainBuilder dummyBidirectionalStreamStream() {
         return exec(
-                bidiStream("GRPCBin/DummyBidirectionalStreamStream", GRPCBinGrpc.getDummyBidirectionalStreamStreamMethod())
-                    .messages(uploadChunks, (session, index) -> DummyMessage.newBuilder()
+                grpc("GRPCBin/DummyBidirectionalStreamStream")
+                    .bidiStream(GRPCBinGrpc.getDummyBidirectionalStreamStreamMethod())
+                    .send(uploadChunks, (session, index) -> DummyMessage.newBuilder()
                             .setFString(session.getString("payload"))
                             .setFInt32(index)
                             .setFBytes(chunk)
                             .build())
-                    .check((echoes, last, session) -> echoes == uploadChunks
-                            ? null
-                            : echoes + " chunks acknowledged of " + uploadChunks)
+                    .check(messageCount().is(uploadChunks))
         );
     }
 

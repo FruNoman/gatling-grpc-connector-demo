@@ -31,28 +31,26 @@ public class GrpcbinBlockingActions extends GrpcDsl {
     /** {@code GRPCBin/DummyUnary}, waited for on the Gatling thread that runs the action. */
     public ChainBuilder dummyUnary() {
         return exec(
-                blockingGrpc("GRPCBin/DummyUnary", GRPCBinGrpc.getDummyUnaryMethod())
-                    .request(session -> DummyMessage.newBuilder()
+                grpc("GRPCBin/DummyUnary")
+                    .blockingUnary(GRPCBinGrpc.getDummyUnaryMethod())
+                    .send(session -> DummyMessage.newBuilder()
                             .setFString(session.getString("payload"))
                             .setFInt32(session.getInt("payloadId"))
                             .build())
-                    .check((response, session) -> response.getFString().equals(session.getString("payload"))
-                            ? null
-                            : "echo '" + response.getFString() + "' is not the request")
+                    .check(response(DummyMessage::getFString).isEL("#{payload}"))
         );
     }
 
     /** {@code GRPCBin/DummyServerStream}, drained on the Gatling thread that runs the action — ten seconds of it. */
     public ChainBuilder dummyServerStream() {
         return exec(
-                blockingServerStream("GRPCBin/DummyServerStream", GRPCBinGrpc.getDummyServerStreamMethod())
-                    .request(session -> DummyMessage.newBuilder()
+                grpc("GRPCBin/DummyServerStream")
+                    .blockingServerStream(GRPCBinGrpc.getDummyServerStreamMethod())
+                    .send(session -> DummyMessage.newBuilder()
                             .setFString(session.getString("payload"))
                             .setFBytes(chunk)
                             .build())
-                    .check((messages, last, session) -> messages == DOWNLOAD_CHUNKS
-                            ? null
-                            : messages + " chunks downloaded of " + DOWNLOAD_CHUNKS)
+                    .check(messageCount().is(DOWNLOAD_CHUNKS))
         );
     }
 }
