@@ -37,6 +37,17 @@ public final class GrpcResponseCheck<R, T> {
         };
     }
 
+    /** Greater than {@code lower} — a count that must not be empty: {@code response(FindResponse::getCompaniesCount).gt(0)}. */
+    @SuppressWarnings("unchecked")
+    public GrpcCheck<R> gt(T lower) {
+        return (response, session) -> {
+            T actual = extract.apply(response);
+            return actual != null && ((Comparable<T>) actual).compareTo(lower) > 0
+                    ? null
+                    : "response is '" + actual + "', expected > '" + lower + "'";
+        };
+    }
+
     /**
      * Equal to a Gatling Expression Language string resolved against the session — {@code "#{payload}"}, as Gatling's own
      * {@code isEL}. The expression is parsed once, here, so a typo fails the simulation at start and not every call of the run.
