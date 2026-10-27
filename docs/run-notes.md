@@ -42,6 +42,12 @@ GRPCBin/DummyBidirectionalStreamStream: 95th percentile of response time is less
 
 The global p95 of 10 044 ms is the download and nothing else — which is why the verdict is made of per-request limits.
 
+**Reproduced from a clean build on the merged commit** (`./gradlew clean gatlingRun …`, report
+`grpcbinsimulation-20261027153621519/`): 922 requests, 0 KO, 12.29 req/s, 50 users held for 14 of 16 snapshots, every assertion
+green — p95 unary 6 ms, download 10 057 ms, upload 29 ms. Own counting 967 sent / 922 answered / 45 cut, 6 169 messages. Two
+runs an hour apart agree to within a request and a few milliseconds, which is what makes the numbers above a baseline rather
+than an anecdote.
+
 ### The connector's own counting, against Gatling's report
 
 The actions count for themselves (`core/stats/RunStats`), because Gatling 3.16 hands its statistics to nobody and because a
