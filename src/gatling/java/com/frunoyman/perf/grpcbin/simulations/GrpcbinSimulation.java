@@ -42,7 +42,7 @@ public class GrpcbinSimulation extends Simulation {
 
     private final GrpcbinSettings settings = GrpcbinSettings.load();
     private final LoadProfile loadProfile = LoadProfile.fromSystemProperties(DEFAULTS);
-    private final GrpcChannel channel = new GrpcChannel(settings.target(), settings.plaintext());
+    private final GrpcChannel channel = new GrpcChannel(settings.target(), settings.plaintext(), settings.deadlineMs());
     private final GrpcbinScenarios scenarios = new GrpcbinScenarios(new GrpcbinActions(channel, settings));
     private final Limits limits = Limits.of(loadProfile, p95Limits());
 

@@ -80,8 +80,8 @@ echo or on the download (`-Dcall=`). Open profile, because a stalled generator i
 
 | Variant | Planned | Applied | p95 | Assertions | Run took |
 |---|---|---|---|---|---|
-| async stub (`StreamObserver`) | 180 downloads (8/s × 20 s + ramp), ~80 open at once | **180 of 180** | 10 056 ms | green | 35 s |
-| **blocking stub** (`Iterator`, drained in the action) | the same 180 | **99 of 180** (+20 still out at the end) | 10 061 ms | green | **55 s** |
+| async call (`StreamObserver`) | 180 downloads (8/s × 20 s + ramp), ~80 open at once | **180 of 180** | 10 056 ms | green | 35 s |
+| **blocking call** (`Iterator`, drained in the action) | the same 180 | **99 of 180** (+20 still out at the end) | 10 061 ms | green | **55 s** |
 
 The blocking run lost 45 % of its plan, took 20 s longer than its own injection, and reported the same latency and the same
 green assertions. That is the whole argument: p95 says nothing about a load that was never applied — the applied count does.

@@ -7,7 +7,7 @@ Goal:
 
 - Does a hand-written Gatling connector measure a gRPC call correctly at all — unary, server stream, bidi stream? → **smoke**
 - What do N simultaneous clients get out of the three shapes, and does the connector hold at N = 50? → **concurrency**
-- Does the load generator apply what was planned, with the async stub and with the blocking one? → **injector**
+- Does the load generator apply what was planned, with the async call and with the blocking one? → **injector**
 - Where does it bend? → **stress** (shape in place, not run; see "Not covered")
 
 ## Profiles
@@ -83,7 +83,9 @@ simulation sends (that is what caught the broken `DummyClientStream` and the ser
   shape; the demo loads the bidi RPC instead.
 - **TLS** — the `public` config block points at `grpcb.in:9001` (the public instance of the same server) and the channel supports
   it, but no run is recorded against it.
-- **Auth** — grpcbin needs none. Against a real service the token goes on a `CallCredentials` / metadata interceptor, fetched
-  once beside the run, never as a request in the statistics.
+- **Auth** — grpcbin needs none. Against a real service the token goes through the builder's `.callOptions(…)` hatch as a
+  `CallCredentials` (static metadata: a channel interceptor), fetched once beside the run, never as a request in the statistics.
+  That hatch is the connector's answer to the stub having been where per-user auth used to live; it is the one place a call can be
+  changed, and it cannot read the session.
 - **Chained calls** — the predecessor demo passed values from one response into the next request; this connector has no `saveAs`,
   so a chain would be written by hand in the check. Not built here.

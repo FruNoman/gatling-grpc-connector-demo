@@ -40,7 +40,7 @@ public class GrpcbinInjectorSimulation extends Simulation {
     private final boolean download = !"unary".equals(System.getProperty("call", "download"));
     private final GrpcbinSettings settings = GrpcbinSettings.load();
     private final LoadProfile loadProfile = LoadProfile.fromSystemProperties(DEFAULTS);
-    private final GrpcChannel channel = new GrpcChannel(settings.target(), settings.plaintext());
+    private final GrpcChannel channel = new GrpcChannel(settings.target(), settings.plaintext(), settings.deadlineMs());
     private final Limits limits = Limits.of(loadProfile, Map.of(request(), download ? DOWNLOAD_P95_MS : UNARY_P95_MS));
 
     {

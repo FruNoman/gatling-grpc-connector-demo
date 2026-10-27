@@ -4,28 +4,29 @@ import io.gatling.commons.util.Clock;
 import io.gatling.core.action.Action;
 import io.gatling.core.stats.StatsEngine;
 import io.gatling.javaapi.core.Session;
+import io.grpc.MethodDescriptor;
+import io.grpc.stub.ClientCalls;
 
 import java.util.Iterator;
 import java.util.function.Function;
-import java.util.function.Supplier;
 
 /**
  * Drains a server stream on the Gatling thread that runs the action — the measurement behind the rule that a load test's calls are
  * never blocking. The recorded response time is the same whole-stream time the async action records, which is the point: the two
  * runs differ in what the <b>injector</b> managed to apply, not in what the service answered.
  */
-final class GrpcBlockingStreamAction<S, Q, R> extends GrpcAction {
+final class GrpcBlockingStreamAction<Q, R> extends GrpcAction {
 
-    private final Supplier<S> stub;
-    private final GrpcBlockingStreamActionBuilder.Call<S, Q, R> call;
+    private final GrpcChannel channel;
+    private final MethodDescriptor<Q, R> method;
     private final Function<Session, Q> request;
     private final GrpcStreamCheck<R> check;
 
-    GrpcBlockingStreamAction(String name, Supplier<S> stub, GrpcBlockingStreamActionBuilder.Call<S, Q, R> call,
-                             Function<Session, Q> request, GrpcStreamCheck<R> check, StatsEngine stats, Clock clock, Action next) {
+    GrpcBlockingStreamAction(String name, GrpcChannel channel, MethodDescriptor<Q, R> method, Function<Session, Q> request,
+                             GrpcStreamCheck<R> check, StatsEngine stats, Clock clock, Action next) {
         super(name, stats, clock, next);
-        this.stub = stub;
-        this.call = call;
+        this.channel = channel;
+        this.method = method;
         this.request = request;
         this.check = check;
     }
@@ -41,7 +42,7 @@ final class GrpcBlockingStreamAction<S, Q, R> extends GrpcAction {
         int messages = 0;
         R last = null;
         try {
-            Iterator<R> stream = call.invoke(stub.get(), message);
+            Iterator<R> stream = ClientCalls.blockingServerStreamingCall(channel.get(), method, channel.callOptions(), message);
             while (stream.hasNext()) {
                 last = stream.next();
                 messages++;
