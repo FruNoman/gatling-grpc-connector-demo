@@ -4,7 +4,7 @@ Gatling's own gRPC support is **Gatling Enterprise-only**. The usual free answer
 [phisgr/gatling-grpc](https://github.com/phisgr/gatling-grpc), which works — and which pins you to **Gatling 3.9.5**, a release
 from 2023. That is the trade my [previous demo](https://github.com/FruNoman/grpc-perf-demo) made.
 
-This one doesn't trade: **Gatling 3.16.0, no Enterprise licence, no community gRPC library.** The gRPC support is ~1 150 lines of
+This one doesn't trade: **Gatling 3.16.0, no Enterprise licence, no community gRPC library.** The gRPC support is ~1 300 lines of
 Java in `core/grpc/` — a custom Gatling action over protoc's generated **method descriptors**, written once, and after that a gRPC
 call reads the way Gatling Enterprise's own gRPC DSL does:
 
@@ -69,6 +69,79 @@ measured time is the whole stream and not how long it took to open it.
 
 Auth, which used to live on the stub, is one documented hatch — `.callOptions(options -> options.withCallCredentials(…))`, applied
 per call. Static metadata is smaller as a channel interceptor.
+
+## How it works
+
+### One call, from `exec` to the report
+
+```mermaid
+sequenceDiagram
+    participant S as Scenario (virtual user)
+    participant A as GrpcUnaryAction
+    participant C as GrpcChannel
+    participant G as grpc-java (its own threads)
+    participant R as GrpcCall → Gatling StatsEngine
+    S->>A: execute(session)
+    A->>A: send(session) builds the request message
+    A->>R: sent() — clock starts, RunStats.sent
+    A->>C: newCall(descriptor, callOptions()) — fresh deadline
+    A->>G: ClientCalls.asyncUnaryCall(call, request, observer)
+    Note over A,S: execute() returns at once — the Gatling thread is free
+    G-->>A: onNext(response) … onCompleted()
+    A->>A: check(response, session) → null or a reason
+    A->>R: ok() / ko(reason) / failed(status)
+    R->>R: logResponse(name, start, end, OK/KO, reason) — exactly once
+    R-->>S: session.eventLoop().execute(next ! session)
+```
+
+1. **Build time.** `grpc("GRPCBin/DummyUnary").unary(GRPCBinGrpc.getDummyUnaryMethod())` is an ordinary Gatling Java-DSL
+   `ActionBuilder`. When Gatling builds the scenario it calls `asScala()`, which checks two things before any user is injected: a
+   `.send(…)` is there, and the descriptor's real `MethodType` is the shape the builder makes (`GrpcShape`).
+2. **The request.** `execute(session)` runs the `.send(session -> …)` function on the user's session. If it throws (a missing
+   feeder key) Gatling logs a *request crash* for that name and the user moves on — that is a bug in the test, not a KO of the
+   service.
+3. **The call.** The action does what protoc's generated async stub would do —
+   `ClientCalls.asyncUnaryCall(channel.newCall(method, callOptions), request, observer)` — on the run's single channel. The
+   `CallOptions` (and therefore the deadline) are built **per call**: a deadline is an absolute moment, shared options would
+   expire for the whole run at once. `execute()` returns immediately; nothing waits on Gatling's few engine threads.
+4. **The answer** arrives on a gRPC thread. `onError` turns the gRPC status into the KO reason (`DEADLINE_EXCEEDED: …`);
+   `onCompleted` runs the checks — `response(DummyMessage::getFString).isEL("#{payload}")` compares the echo with the session's
+   value and returns `response is 'x', expected 'y'` or nothing.
+5. **The record.** `GrpcCall` is the only class that writes into Gatling: one `StatsEngine.logResponse` with the start, the end,
+   OK/KO and the reason, so the request appears in the HTML report, the assertions and the error table under its name — next to
+   HTTP requests if the simulation has any. It is guarded to record **once** (a stream can complete and then see a late deadline).
+6. **Back to the user.** The session is handed to the next action through `session.eventLoop()`, exactly as Gatling does after
+   an HTTP response, marked failed if the call was a KO.
+
+### Streams
+
+A stream is **one** action and **one** request in the report, timed from the first byte sent to the last message received:
+
+| Builder | Under the hood | Measured |
+|---|---|---|
+| `.serverStream(d).send(…)` | `asyncServerStreamingCall`; messages counted in `onNext` | the whole download (grpcbin: ten messages, one per second → ~10 s) |
+| `.bidiStream(d).send(n, (session, i) -> …)` | `asyncBidiStreamingCall`, or `asyncClientStreamingCall` when the descriptor is `CLIENT_STREAMING`; message *i* is built and sent from an on-ready handler while `isReady()` | the whole upload, paced by gRPC's flow control instead of buffering every chunk in the generator's heap |
+
+`.check(messageCount().is(10))` catches a server that closes the stream early.
+
+### The run around the calls
+
+- **The channel.** `GrpcChannel` holds one `ManagedChannel` per target: `start()` in the simulation's `before()`, `stop()` in
+  `after()`. The actions are built in the constructor and read the channel at call time.
+- **No protocol in `setUp`.** The actions class extends `GrpcDsl`, which carries the channel, so the call site never passes it.
+- **Its own counting.** `RunStats` counts *sent* / *answered* / *messages* per request name, and `after()` prints it next to
+  Gatling's numbers. Calls still open when the run's time limit hits are reported as sent and cut — not as failures.
+- **The verdict.** Assertions per request name (`Limits`): a p95 limit each — a 5 ms echo and a 10 s download in one global
+  percentile would hide each other — and zero failed calls. A red assertion fails the Gradle build, so CI needs no one to read
+  the chart.
+- **Auth.** `.callOptions(options -> options.withCallCredentials(…))` per call for a per-user token; static metadata as a channel
+  interceptor.
+
+### Why this is a custom action and not a library
+
+Gatling's `Action` / `StatsEngine` is internal Scala API, not the documented Java DSL, so `core/grpc/` is written against a pinned
+Gatling (3.16.0) and the smoke run is the upgrade test. In exchange there is no gRPC plugin to wait for: the same Gatling, the
+same project and the same scenarios as the HTTP tests.
 
 ## Run it
 
