@@ -61,8 +61,8 @@ checkstyle {
 // The run's parameters (-Dprofile=concurrency -Dusers=50 …, -D<env>.<path>=… config overrides) are passed on to the Gatling
 // process; the simulation is named by its class: -Dsimulation=GrpcbinSimulation, found under **/simulations.
 val runParameters = listOf(
-    "env", "profile", "users", "rate", "rampUp", "steadyState", "step", "steps", "spikeFactor", "spike", "pauseMs",
-    "blocking", "maxFailedPercent", "maxUnaryP95Ms", "maxStreamP95Ms",
+    "env", "profile", "users", "rate", "rampUp", "steadyState", "step", "steps", "pauseMs",
+    "blocking", "call", "maxFailedPercent",
 )
 
 tasks.withType<io.gatling.gradle.GatlingRunTask>().configureEach {

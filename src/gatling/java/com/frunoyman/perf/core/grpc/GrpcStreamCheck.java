@@ -1,0 +1,15 @@
+package com.frunoyman.perf.core.grpc;
+
+import io.gatling.javaapi.core.Session;
+
+/**
+ * A streaming call's check: null when the stream was right, else the reason — the KO's message in the report. {@code messages} is
+ * how many messages came back and {@code last} is the final one (null for a stream that delivered none); the count is the half a
+ * unary check cannot express, and the half that catches a server closing the stream early. The session is the one the call was made
+ * with.
+ */
+@FunctionalInterface
+public interface GrpcStreamCheck<R> {
+
+    String reasonOrNull(int messages, R last, Session session);
+}
