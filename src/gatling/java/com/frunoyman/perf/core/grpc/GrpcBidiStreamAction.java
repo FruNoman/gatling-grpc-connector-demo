@@ -4,10 +4,14 @@ import io.gatling.commons.util.Clock;
 import io.gatling.core.action.Action;
 import io.gatling.core.stats.StatsEngine;
 import io.gatling.javaapi.core.Session;
+import io.grpc.CallOptions;
+import io.grpc.ClientCall;
+import io.grpc.MethodDescriptor;
 import io.grpc.stub.ClientCallStreamObserver;
+import io.grpc.stub.ClientCalls;
 import io.grpc.stub.ClientResponseObserver;
 
-import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 
 /**
  * Sends a stream of messages and records one request when the call is over — the recorded time is the whole upload, from the first
@@ -15,29 +19,31 @@ import java.util.function.Supplier;
  * <p>
  * The chunks go out under gRPC's flow control. Two things force that shape, and both are easy to get wrong:
  * <ul>
- *   <li>the generated async stub <b>starts the call</b> before it hands the request observer back, and the handler can only be
- *       installed before the call starts — the one place left is {@link ClientResponseObserver#beforeStart}, which gRPC calls with
- *       the typed request stream in hand;</li>
+ *   <li>{@code ClientCalls.asyncBidiStreamingCall} <b>starts the call</b> before it returns the request observer, and the handler
+ *       can only be installed before the call starts — the one place left is {@link ClientResponseObserver#beforeStart}, which
+ *       gRPC calls with the typed request stream in hand (which is also why the observer it returns is ignored here);</li>
  *   <li>sending all the chunks in a blind {@code for} loop compiles and passes a small test — and then buffers the whole upload of
  *       every virtual user in the load generator's heap the moment the server reads slower than the load sends.</li>
  * </ul>
  * {@link #sendWhileReady} is called on a gRPC thread, by the on-ready handler, and is the only place that writes to the stream, so
  * it is also the only thing that needs a lock. Nothing here blocks a Gatling thread.
  */
-final class GrpcBidiStreamAction<S, Q, R> extends GrpcAction {
+final class GrpcBidiStreamAction<Q, R> extends GrpcAction {
 
-    private final Supplier<S> stub;
-    private final GrpcBidiStreamActionBuilder.Call<S, Q, R> call;
+    private final GrpcChannel channel;
+    private final MethodDescriptor<Q, R> method;
+    private final UnaryOperator<CallOptions> callOptions;
     private final int count;
     private final GrpcBidiStreamActionBuilder.Message<Q> message;
     private final GrpcStreamCheck<R> check;
 
-    GrpcBidiStreamAction(String name, Supplier<S> stub, GrpcBidiStreamActionBuilder.Call<S, Q, R> call, int count,
-                         GrpcBidiStreamActionBuilder.Message<Q> message, GrpcStreamCheck<R> check, StatsEngine stats, Clock clock,
-                         Action next) {
+    GrpcBidiStreamAction(String name, GrpcChannel channel, MethodDescriptor<Q, R> method, UnaryOperator<CallOptions> callOptions,
+                         int count, GrpcBidiStreamActionBuilder.Message<Q> message, GrpcStreamCheck<R> check, StatsEngine stats,
+                         Clock clock, Action next) {
         super(name, stats, clock, next);
-        this.stub = stub;
-        this.call = call;
+        this.channel = channel;
+        this.method = method;
+        this.callOptions = callOptions;
         this.count = count;
         this.message = message;
         this.check = check;
@@ -106,7 +112,12 @@ final class GrpcBidiStreamAction<S, Q, R> extends GrpcAction {
             }
         };
         try {
-            call.invoke(stub.get(), responses);
+            ClientCall<Q, R> call = channel.newCall(method, callOptions);
+            if (method.getType() == MethodDescriptor.MethodType.CLIENT_STREAMING) {
+                ClientCalls.asyncClientStreamingCall(call, responses);
+            } else {
+                ClientCalls.asyncBidiStreamingCall(call, responses);
+            }
         } catch (RuntimeException e) {
             measured.failed(e, 0);
         }

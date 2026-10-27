@@ -4,26 +4,28 @@ import io.gatling.commons.util.Clock;
 import io.gatling.core.action.Action;
 import io.gatling.core.stats.StatsEngine;
 import io.gatling.javaapi.core.Session;
+import io.grpc.MethodDescriptor;
+import io.grpc.stub.ClientCalls;
 
 import java.util.function.Function;
-import java.util.function.Supplier;
 
 /**
- * One unary call made the wrong way on purpose: the blocking stub is called inside {@code execute}, so the Gatling engine thread
- * that runs this action waits out the whole round trip. Measured against {@link GrpcUnaryAction} in {@code docs/run-notes.md}.
+ * One unary call made the wrong way on purpose: {@code ClientCalls.blockingUnaryCall} is called inside {@code execute}, so the
+ * Gatling engine thread that runs this action waits out the whole round trip. Measured against {@link GrpcUnaryAction} in
+ * {@code docs/run-notes.md} — the only difference between the two actions is this one call.
  */
-final class GrpcBlockingUnaryAction<S, Q, R> extends GrpcAction {
+final class GrpcBlockingUnaryAction<Q, R> extends GrpcAction {
 
-    private final Supplier<S> stub;
-    private final GrpcBlockingActionBuilder.Call<S, Q, R> call;
+    private final GrpcChannel channel;
+    private final MethodDescriptor<Q, R> method;
     private final Function<Session, Q> request;
     private final GrpcCheck<R> check;
 
-    GrpcBlockingUnaryAction(String name, Supplier<S> stub, GrpcBlockingActionBuilder.Call<S, Q, R> call,
-                            Function<Session, Q> request, GrpcCheck<R> check, StatsEngine stats, Clock clock, Action next) {
+    GrpcBlockingUnaryAction(String name, GrpcChannel channel, MethodDescriptor<Q, R> method, Function<Session, Q> request,
+                            GrpcCheck<R> check, StatsEngine stats, Clock clock, Action next) {
         super(name, stats, clock, next);
-        this.stub = stub;
-        this.call = call;
+        this.channel = channel;
+        this.method = method;
         this.request = request;
         this.check = check;
     }
@@ -38,7 +40,7 @@ final class GrpcBlockingUnaryAction<S, Q, R> extends GrpcAction {
         GrpcCall measured = sent(session);
         R response;
         try {
-            response = call.invoke(stub.get(), message);
+            response = ClientCalls.blockingUnaryCall(channel.get(), method, channel.callOptions(), message);
         } catch (RuntimeException e) {
             measured.failed(e, 0);
             return;
